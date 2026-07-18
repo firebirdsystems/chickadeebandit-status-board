@@ -1,0 +1,22 @@
+{
+  "scenarios": [
+    {
+      "name": "everyone reads the board; a member cannot change another member's status",
+      "members": { "alex": "adult", "casey": "child" },
+      "steps": [
+        { "action": "seedRaw", "sql": "INSERT INTO app_status_board__statuses (member_id, member_name, status, note, back_date, back_time, visibility, updated_at) VALUES (?, 'Alex', 'away', 'at work', '', '', 'everyone', '2026-07-17T09:00:00Z')", "params": ["{{alex}}"] },
+        { "action": "db", "as": "casey", "sql": "SELECT member_id, status FROM app_status_board__statuses", "expect": { "status": 200, "rowCount": 1, "rowsContain": [{ "status": "away" }] } },
+        { "action": "db", "as": "casey", "sql": "UPDATE app_status_board__statuses SET status = 'home', note = 'hacked' WHERE member_id = ?", "params": ["{{alex}}"], "expect": { "status": 200 } },
+        { "action": "db", "as": "alex", "sql": "SELECT status, note FROM app_status_board__statuses WHERE member_id = ?", "params": ["{{alex}}"], "expect": { "status": 200, "rowsContain": [{ "status": "away", "note": "at work" }] } }
+      ]
+    },
+    {
+      "name": "a member sets their own status via upsert and everyone can see it",
+      "members": { "casey": "child", "alex": "adult" },
+      "steps": [
+        { "action": "db", "as": "casey", "sql": "INSERT INTO app_status_board__statuses (member_id, member_name, status, note, back_date, back_time, visibility, updated_at) VALUES (?, 'Casey', 'busy', 'soccer', '', '', 'everyone', '2026-07-17T15:00:00Z')", "params": ["{{casey}}"], "expect": { "status": 200 } },
+        { "action": "db", "as": "alex", "sql": "SELECT status, note FROM app_status_board__statuses WHERE member_id = ?", "params": ["{{casey}}"], "expect": { "status": 200, "rowsContain": [{ "status": "busy", "note": "soccer" }] } }
+      ]
+    }
+  ]
+}

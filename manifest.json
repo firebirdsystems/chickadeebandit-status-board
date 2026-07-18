@@ -1,0 +1,54 @@
+{
+  "id": "status-board",
+  "name": "Who's Home",
+  "version": "1.0.0",
+  "description": "A shared family status board. Each member sets whether they're home, away, busy, or do-not-disturb — with an optional note and a \"back by\" time. Everyone sees the board at a glance, on the home screen and on the kiosk.",
+  "entrypoint": "index.html",
+  "runtime": "static",
+  "category": "family",
+  "tags": ["family", "presence", "status", "whereabouts", "kiosk"],
+  "icon": "🏠",
+  "storage": "db",
+  "db_encryption": "off",
+  "data_access": {
+    "reads": ["family.members"],
+    "writes": []
+  },
+  "permissions": {
+    "default_audience": "everyone",
+    "requires_approval": false
+  },
+  "row_policies": {
+    "statuses": {
+      "kind": "owner_or_visibility",
+      "member_column": "member_id",
+      "visibility_column": "visibility",
+      "everyone_values": ["everyone"],
+      "write_owner_only": true
+    }
+  },
+  "nav": { "label": "Who's Home" },
+  "glance": {
+    "source": {
+      "kind": "sql",
+      "query": "SELECT member_name AS title, CASE status WHEN 'away' THEN 'Away' WHEN 'busy' THEN 'Busy' WHEN 'dnd' THEN 'Do not disturb' ELSE 'Home' END AS subtitle, updated_at AS at FROM app_status_board__statuses WHERE status != 'home' ORDER BY updated_at DESC LIMIT 5"
+    },
+    "display": { "template": "list", "title": "title", "subtitle": "subtitle", "when": "at" }
+  },
+  "agenda": {
+    "kind": "reminder",
+    "label": "Who's Home",
+    "source": {
+      "kind": "sql",
+      "query": "SELECT member_id AS id, member_name AS title, CASE WHEN back_time = '' THEN back_date ELSE back_date || 'T' || back_time END AS when_at, CASE WHEN note != '' THEN note ELSE 'Back home' END AS subtitle, member_id AS member_id FROM app_status_board__statuses WHERE status != 'home' AND back_date = :today ORDER BY back_time LIMIT 20"
+    }
+  },
+  "resource_limits": {
+    "max_db_bytes": 52428800
+  },
+  "ai_access": {
+    "allowed": true,
+    "mode": "read",
+    "db_exports": ["board"]
+  }
+}

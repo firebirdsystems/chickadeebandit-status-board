@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Who's Home</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: var(--hub-bg, #f9fafb);
+      --surface: var(--hub-surface, #ffffff);
+      --border: var(--hub-border, #e5e7eb);
+      --border-mid: var(--hub-border, #d1d5db);
+      --text: var(--hub-text, #111827);
+      --muted: var(--hub-text-muted, #6b7280);
+      --accent: var(--hub-primary, #111827);
+      --accent-hover: var(--hub-primary-hover, #374151);
+      --accent-fg: var(--hub-primary-fg, #ffffff);
+      --radius: var(--hub-radius, 8px);
+      --red: #b91c1c;
+      --red-soft: #fee2e2;
+      --home: #16a34a;
+      --home-soft: #dcfce7;
+      --away: #d97706;
+      --away-soft: #fef3c7;
+      --busy: #7c3aed;
+      --busy-soft: #ede9fe;
+      --dnd: #b91c1c;
+      --dnd-soft: #fee2e2;
+      --shadow: 0 1px 3px rgba(15, 23, 42, .07);
+    }
+    body {
+      min-height: 100vh; background: var(--bg); color: var(--text);
+      font-family: var(--hub-font, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif);
+      font-size: var(--hub-font-size, 15px); line-height: 1.5;
+    }
+    .app { max-width: 680px; margin: 0 auto; padding: 16px; }
+    .topbar { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 4px; }
+    h1 { font-size: 1.35rem; line-height: 1.2; }
+    .muted { color: var(--muted); }
+    .tiny { font-size: .78rem; }
+    .summary { color: var(--muted); font-size: .82rem; margin-bottom: 14px; }
+    .card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); box-shadow: var(--shadow); padding: 14px;
+    }
+    /* Set-my-status panel */
+    .setter { margin-bottom: 16px; }
+    .setter h2 { font-size: .95rem; margin-bottom: 10px; }
+    .status-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+    .status-btn {
+      display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+      border: 1.5px solid var(--border-mid); background: var(--surface); color: var(--text);
+      border-radius: 999px; padding: 7px 13px; font: inherit; font-size: .85rem; font-weight: 700;
+    }
+    .status-btn[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-fg); }
+    .setter-extra { display: grid; gap: 10px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .field { display: grid; gap: 4px; }
+    label { font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 800; }
+    input {
+      width: 100%; border: 1.5px solid var(--border-mid); border-radius: 8px;
+      padding: 9px 11px; font: inherit; background: var(--surface); color: var(--text);
+    }
+    input:focus { outline: none; border-color: var(--accent); }
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+      border: 1px solid transparent; border-radius: 8px; padding: 9px 14px;
+      font: inherit; font-size: .88rem; font-weight: 700; cursor: pointer;
+      min-height: 40px; background: var(--accent); color: var(--accent-fg);
+    }
+    .btn:hover { background: var(--accent-hover); }
+    .btn:disabled { opacity: .48; cursor: default; }
+    /* Board */
+    .board { display: grid; gap: 10px; }
+    .tile { display: flex; align-items: center; gap: 12px; }
+    .avatar {
+      width: 40px; height: 40px; border-radius: 50%; flex: 0 0 auto;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 800; color: #fff; font-size: 1rem;
+    }
+    .tile-main { flex: 1 1 auto; min-width: 0; }
+    .tile-name { font-weight: 700; }
+    .tile-sub { color: var(--muted); font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .pill {
+      flex: 0 0 auto; display: inline-flex; align-items: center; gap: 5px;
+      border-radius: 999px; padding: 4px 10px; font-size: .78rem; font-weight: 800;
+    }
+    .pill.home { background: var(--home-soft); color: var(--home); }
+    .pill.away { background: var(--away-soft); color: var(--away); }
+    .pill.busy { background: var(--busy-soft); color: var(--busy); }
+    .pill.dnd  { background: var(--dnd-soft);  color: var(--dnd); }
+    .me-badge { font-size: .68rem; color: var(--muted); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+    .empty, .loading { color: var(--muted); text-align: center; padding: 28px 16px; }
+    .error { background: var(--red-soft); color: var(--red); padding: 9px 12px; border-radius: 8px; margin-bottom: 10px; font-size: .86rem; }
+  </style>
+  <base href="/run/status-board/">
+</head>
+<body>
+<div class="app">
+  <div id="root" class="loading">Loading…</div>
+</div>
+
+<script type="module">
+import { esc } from "/hub-sdk.js";
+import {
+  STATUSES, statusLabel, statusEmoji, isOut, isoDate, formatTime,
+  buildBoard, boardSummary,
+} from "./logic.js";
+
+// --- Hub runtime globals (empty in demo mode) --------------------------------
+const CONTEXT = window.__CONTEXT_URL ?? "";
+const DB = window.__DB_URL ?? "";
+const HUB_MEMBER = window.__CURRENT_MEMBER ?? null;
+
+// --- App state ---------------------------------------------------------------
+let members = [];
+let currentMember = null;
+let statusRows = [];
+let error = "";
+// Draft of the setter panel (before Save)
+let draft = { status: "home", note: "", back_date: "", back_time: "" };
+
+function nowIso() { return new Date().toISOString(); }
+
+function avatarColor(id) {
+  let h = 0;
+  for (const ch of String(id)) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  return `hsl(${h} 55% 45%)`;
+}
+function initial(name) { return String(name ?? "?").trim().charAt(0).toUpperCase() || "?"; }
+
+async function db(sql, params = []) {
+  if (!DB) return { rows: [] };
+  const res = await fetch(DB, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sql, params }),
+  });
+  const json = await res.json();
+  if (json.error) throw new Error(json.error);
+  return json;
+}
+
+async function loadMembers() {
+  if (!CONTEXT) {
+    members = [
+      { id: "demo-1", name: "Alex", role: "adult" },
+      { id: "demo-2", name: "Jordan", role: "adult" },
+      { id: "demo-3", name: "Casey", role: "child" },
+    ];
+  } else {
+    const res = await fetch(`${CONTEXT}?keys=family.members`);
+    members = ((await res.json())["family.members"]) ?? [];
+  }
+  currentMember = HUB_MEMBER ?? members[0] ?? { id: "guest", name: "Guest", role: "adult" };
+}
+
+async function loadStatuses() {
+  if (!DB) {
+    statusRows = [
+      { member_id: "demo-2", member_name: "Jordan", status: "away", note: "At the office", back_date: isoDate(), back_time: "18:00", updated_at: nowIso() },
+      { member_id: "demo-3", member_name: "Casey", status: "busy", note: "Soccer practice", back_date: "", back_time: "", updated_at: nowIso() },
+    ];
+    return;
+  }
+  const { rows } = await db("SELECT * FROM app_status_board__statuses");
+  statusRows = rows;
+}
+
+/** Seed the setter draft from the member's current row. */
+function syncDraftFromMine() {
+  const mine = statusRows.find((r) => r.member_id === currentMember?.id);
+  draft = {
+    status: mine?.status ?? "home",
+    note: mine?.note ?? "",
+    back_date: mine?.back_date ?? "",
+    back_time: mine?.back_time ?? "",
+  };
+}
+
+async function refresh() {
+  error = "";
+  try {
+    await Promise.all([loadMembers(), loadStatuses()]);
+    syncDraftFromMine();
+    render();
+  } catch (e) {
+    error = e.message;
+    render();
+  }
+}
+
+async function saveMyStatus() {
+  if (!currentMember) return;
+  // Home clears the "back by" fields — you're already back.
+  const status = draft.status;
+  const note = (draft.note ?? "").trim();
+  const backDate = status === "home" ? "" : (draft.back_date ?? "").trim();
+  const backTime = status === "home" ? "" : (draft.back_time ?? "").trim();
+
+  const btn = document.getElementById("save-btn");
+  if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
+
+  const row = {
+    member_id: currentMember.id,
+    member_name: currentMember.name,
+    status, note, back_date: backDate, back_time: backTime,
+    visibility: "everyone", updated_at: nowIso(),
+  };
+  try {
+    await db(
+      `INSERT INTO app_status_board__statuses
+         (member_id, member_name, status, note, back_date, back_time, visibility, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'everyone', ?)
+       ON CONFLICT(member_id) DO UPDATE SET
+         member_name = excluded.member_name,
+         status      = excluded.status,
+         note        = excluded.note,
+         back_date   = excluded.back_date,
+         back_time   = excluded.back_time,
+         updated_at  = excluded.updated_at`,
+      [row.member_id, row.member_name, row.status, row.note, row.back_date, row.back_time, row.updated_at]
+    );
+    // Optimistic local update
+    statusRows = [...statusRows.filter((r) => r.member_id !== row.member_id), row];
+    draft = { status, note, back_date: backDate, back_time: backTime };
+    error = "";
+    render();
+  } catch (e) {
+    error = e.message;
+    render();
+    if (btn) { btn.disabled = false; btn.textContent = "Save"; }
+  }
+}
+
+function renderSetter() {
+  const showExtra = isOut(draft.status);
+  const btns = STATUSES.map((s) => `
+    <button type="button" class="status-btn" data-status="${s}" aria-pressed="${draft.status === s}">
+      ${statusEmoji(s)} ${esc(statusLabel(s))}
+    </button>`).join("");
+  return `
+    <section class="card setter">
+      <h2>Set my status${currentMember ? ` — ${esc(currentMember.name)}` : ""}</h2>
+      <div class="status-btns">${btns}</div>
+      ${showExtra ? `
+        <div class="setter-extra">
+          <div class="field">
+            <label for="note">Note (optional)</label>
+            <input id="note" placeholder="e.g. at the office, back for dinner" value="${esc(draft.note)}" maxlength="120" />
+          </div>
+          <div class="row2">
+            <div class="field">
+              <label for="back-date">Back date (optional)</label>
+              <input id="back-date" type="date" value="${esc(draft.back_date)}" />
+            </div>
+            <div class="field">
+              <label for="back-time">Back time (optional)</label>
+              <input id="back-time" type="time" value="${esc(draft.back_time)}" />
+            </div>
+          </div>
+        </div>` : ""}
+      <div style="margin-top:12px"><button class="btn" id="save-btn" type="button">Save</button></div>
+    </section>`;
+}
+
+function renderTile(row) {
+  const sub = [];
+  if (row.note) sub.push(esc(row.note));
+  if (row.backBy) sub.push(esc(row.backBy));
+  const isMe = row.memberId === currentMember?.id;
+  return `
+    <article class="card tile">
+      <div class="avatar" style="background:${avatarColor(row.memberId)}">${esc(initial(row.name))}</div>
+      <div class="tile-main">
+        <div class="tile-name">${esc(row.name)} ${isMe ? '<span class="me-badge">you</span>' : ""}</div>
+        ${sub.length ? `<div class="tile-sub">${sub.join(" · ")}</div>` : ""}
+      </div>
+      <span class="pill ${row.status}">${statusEmoji(row.status)} ${esc(statusLabel(row.status))}</span>
+    </article>`;
+}
+
+function render() {
+  const board = buildBoard(members, statusRows, isoDate());
+  const summary = boardSummary(board);
+  const root = document.getElementById("root");
+  root.className = "app";
+  root.innerHTML = `
+    <div class="topbar">
+      <h1>🏠 Who's Home</h1>
+      <button class="btn" style="min-height:32px;padding:5px 12px;font-size:.8rem" type="button" data-refresh>Refresh</button>
+    </div>
+    <div class="summary">${summary.home} home · ${summary.out} out</div>
+    ${error ? `<div class="error">${esc(error)}</div>` : ""}
+    ${currentMember ? renderSetter() : ""}
+    <section class="board">
+      ${board.length ? board.map(renderTile).join("") : `<div class="card empty">No members yet.</div>`}
+    </section>`;
+}
+
+// --- Events ------------------------------------------------------------------
+document.addEventListener("click", (event) => {
+  const statusBtn = event.target.closest("[data-status]");
+  if (statusBtn) { draft.status = statusBtn.getAttribute("data-status"); render(); return; }
+  if (event.target.closest("[data-refresh]")) { refresh(); return; }
+  if (event.target.closest("#save-btn")) { saveMyStatus(); return; }
+});
+
+document.addEventListener("input", (event) => {
+  const t = event.target;
+  if (t.id === "note") draft.note = t.value;
+  else if (t.id === "back-date") draft.back_date = t.value;
+  else if (t.id === "back-time") draft.back_time = t.value;
+});
+
+refresh();
+</script>
+</body>
+</html>
