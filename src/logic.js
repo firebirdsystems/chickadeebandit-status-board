@@ -81,12 +81,39 @@ export function daysBetween(a, b) {
  * Merge live family members with their status rows into one board array.
  * Members without a row default to Home. Sorted out-first, then by name.
  * `statusRows` are rows from app_status_board__statuses keyed by member_id.
+ *
+ * `presence` is the hub's derived home/away board (the `family.presence` context
+ * key): [{ memberId, state: "home"|"away"|"unknown" }]. It is a *hint*, never an
+ * author — this app cannot write another member's row (write_owner_only), and a
+ * phone must not overrule someone who deliberately said "do not disturb":
+ *
+ *  - said nothing, or said Home: a phone reporting "away" shows them as Away,
+ *    marked `fromPhone` so the board doesn't claim they typed it. An explicit
+ *    Home is indistinguishable from the default in the data, and a stale Home
+ *    shouldn't outrank a live geofence exit.
+ *  - said Away/Busy/Do-not-disturb: the self-report stands exactly as set. If the
+ *    phone disagrees, that becomes a `presenceHint` beside it, not a change.
+ *  - "unknown" (phone quiet, or no crossing yet) and members missing from the
+ *    board contribute nothing at all — silence must never read as "home".
  */
-export function buildBoard(members, statusRows, today = isoDate()) {
+export function buildBoard(members, statusRows, today = isoDate(), presence = []) {
   const byMember = new Map((statusRows ?? []).map((r) => [r.member_id, r]));
+  const presenceByMember = new Map(
+    (Array.isArray(presence) ? presence : []).map((p) => [p?.memberId, p?.state]),
+  );
   const board = (members ?? []).map((m) => {
     const row = byMember.get(m.id);
-    const status = normalizeStatus(row?.status);
+    const selfStatus = normalizeStatus(row?.status);
+    const reported = presenceByMember.get(m.id);
+    let status = selfStatus;
+    let fromPhone = false;
+    let presenceHint = "";
+    if (isOut(selfStatus)) {
+      if (reported === "home") presenceHint = "phone says home";
+    } else if (reported === "away") {
+      status = "away";
+      fromPhone = true;
+    }
     return {
       memberId: m.id,
       name: m.name,
@@ -96,6 +123,10 @@ export function buildBoard(members, statusRows, today = isoDate()) {
       note: row?.note ?? "",
       backBy: row ? formatBackBy(row.back_date, row.back_time, today) : "",
       updatedAt: row?.updated_at ?? "",
+      /** Status came from the phone's geofence, not from the member. */
+      fromPhone,
+      /** Set when a self-reported status and the phone disagree. */
+      presenceHint,
     };
   });
   board.sort((x, y) => (

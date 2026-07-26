@@ -117,6 +117,7 @@ const HUB_MEMBER = window.__CURRENT_MEMBER ?? null;
 let members = [];
 let currentMember = null;
 let statusRows = [];
+let presence = [];   // hub-derived home/away (family.presence); a hint, never a write
 let error = "";
 // Draft of the setter panel (before Save)
 let draft = { status: "home", note: "", back_date: "", back_time: "" };
@@ -149,9 +150,14 @@ async function loadMembers() {
       { id: "demo-2", name: "Jordan", role: "adult" },
       { id: "demo-3", name: "Casey", role: "child" },
     ];
+    presence = [];
   } else {
-    const res = await fetch(`${CONTEXT}?keys=family.members`);
-    members = ((await res.json())["family.members"]) ?? [];
+    const res = await fetch(`${CONTEXT}?keys=family.members,family.presence`);
+    const ctx = await res.json();
+    members = ctx["family.members"] ?? [];
+    // Empty unless Safe Zones has a home zone and location collection is on —
+    // the hub decides, and an empty board simply leaves self-reports alone.
+    presence = ctx["family.presence"] ?? [];
   }
   currentMember = HUB_MEMBER ?? members[0] ?? { id: "guest", name: "Guest", role: "adult" };
 }
@@ -269,6 +275,9 @@ function renderTile(row) {
   const sub = [];
   if (row.note) sub.push(esc(row.note));
   if (row.backBy) sub.push(esc(row.backBy));
+  // Never let a geofence pass as something the member typed.
+  if (row.fromPhone) sub.push("by phone");
+  if (row.presenceHint) sub.push(esc(row.presenceHint));
   const isMe = row.memberId === currentMember?.id;
   return `
     <article class="card tile">
@@ -282,7 +291,7 @@ function renderTile(row) {
 }
 
 function render() {
-  const board = buildBoard(members, statusRows, isoDate());
+  const board = buildBoard(members, statusRows, isoDate(), presence);
   const summary = boardSummary(board);
   const root = document.getElementById("root");
   root.className = "app";

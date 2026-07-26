@@ -20,6 +20,26 @@ member can only write **their own** row. The hub forces `member_id` to the
 caller on insert and scopes updates/deletes to the caller's row — nobody can
 spoof another member's presence via raw `/api/db`. See `scenarios.json`.
 
+## Geofence presence (optional)
+
+When Safe Zones has a home zone and location collection is on, the hub exposes a
+derived home/away signal per member through the `family.presence` context key
+(state + when it changed, never coordinates). This app reads it as a **hint only**
+— it writes nothing on anyone's behalf, and `write_owner_only` stays untouched:
+
+- said nothing, or said **Home** → a phone reporting "away" displays as Away,
+  labelled *by phone* so the board never implies the member typed it. An explicit
+  Home is indistinguishable from the default in the data, and a stale Home
+  shouldn't outrank a live geofence exit.
+- said **Away / Busy / Do not disturb** → the self-report stands exactly as set.
+  A disagreeing phone shows as *phone says home* beside it, nothing more.
+- **unknown** (phone quiet past the hub's stale threshold, or no crossing yet)
+  and members absent from the board contribute nothing — silence must never read
+  as "home".
+
+The glance and agenda SQL stay self-report-only: hub-native queries can't join
+the hub's presence table, and the merge is a board-view concern.
+
 ## Hub surfaces
 
 - **glance** (home dashboard + kiosk ambient board): a list of who's currently

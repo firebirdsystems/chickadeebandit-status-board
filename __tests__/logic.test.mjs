@@ -105,3 +105,67 @@ describe("buildBoard", () => {
     expect(boardSummary(board)).toEqual({ total: 3, out: 1, home: 2 });
   });
 });
+
+describe("buildBoard with hub presence", () => {
+  const members = [
+    { id: "m1", name: "Alex", role: "adult" },
+    { id: "m2", name: "Casey", role: "child" },
+  ];
+  const today = "2026-07-17";
+  const at = (memberId, state) => ({ memberId, state, since: "2026-07-17T08:00:00.000Z" });
+
+  it("shows a member as away when their phone left and they said nothing", () => {
+    const board = buildBoard(members, [], today, [at("m1", "away")]);
+    const alex = board.find((b) => b.name === "Alex");
+    expect(alex).toMatchObject({ status: "away", out: true, fromPhone: true, presenceHint: "" });
+  });
+
+  it("marks the phone as the source so the board never implies they typed it", () => {
+    const board = buildBoard(members, [], today, [at("m1", "away")]);
+    expect(board.find((b) => b.name === "Alex").fromPhone).toBe(true);
+    expect(board.find((b) => b.name === "Casey").fromPhone).toBe(false);
+  });
+
+  it("overrides a stale explicit Home, which is indistinguishable from the default", () => {
+    const rows = [{ member_id: "m1", status: "home", note: "", back_date: "", back_time: "", updated_at: "t" }];
+    expect(buildBoard(members, rows, today, [at("m1", "away")])[0]).toMatchObject({
+      status: "away", fromPhone: true,
+    });
+  });
+
+  it("never overrides a self-reported Do-not-disturb", () => {
+    const rows = [{ member_id: "m1", status: "dnd", note: "on a call", back_date: "", back_time: "", updated_at: "t" }];
+    const board = buildBoard(members, rows, today, [at("m1", "home")]);
+    const alex = board.find((b) => b.name === "Alex");
+    expect(alex.status).toBe("dnd");
+    expect(alex.fromPhone).toBe(false);
+    expect(alex.presenceHint).toBe("phone says home");
+  });
+
+  it("keeps a self-reported Away as set when the phone agrees", () => {
+    const rows = [{ member_id: "m1", status: "away", note: "", back_date: "", back_time: "", updated_at: "t" }];
+    const alex = buildBoard(members, rows, today, [at("m1", "away")])[0];
+    expect(alex).toMatchObject({ status: "away", fromPhone: false, presenceHint: "" });
+  });
+
+  it("treats unknown as no signal, never as home or away", () => {
+    const board = buildBoard(members, [], today, [at("m1", "unknown")]);
+    expect(board[0]).toMatchObject({ status: "home", fromPhone: false, presenceHint: "" });
+  });
+
+  it("leaves members missing from the presence board untouched", () => {
+    const board = buildBoard(members, [], today, [at("m1", "away")]);
+    expect(board.find((b) => b.name === "Casey")).toMatchObject({ status: "home", out: false });
+  });
+
+  it("behaves exactly as before when the hub returns no presence", () => {
+    const rows = [{ member_id: "m2", status: "busy", note: "", back_date: "", back_time: "", updated_at: "t" }];
+    expect(buildBoard(members, rows, today, [])).toEqual(buildBoard(members, rows, today));
+    expect(buildBoard(members, rows, today, null)).toEqual(buildBoard(members, rows, today));
+  });
+
+  it("counts a phone-derived away in the out total", () => {
+    const board = buildBoard(members, [], today, [at("m1", "away")]);
+    expect(boardSummary(board)).toEqual({ total: 2, out: 1, home: 1 });
+  });
+});

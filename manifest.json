@@ -2,7 +2,7 @@
   "id": "status-board",
   "contexts": ["household", "shared_space"],
   "name": "Who's Home",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A shared family status board. Each member sets whether they're home, away, busy, or do-not-disturb — with an optional note and a \"back by\" time. Everyone sees the board at a glance, on the home screen and on the kiosk.",
   "entrypoint": "index.html",
   "runtime": "static",
@@ -12,7 +12,7 @@
   "storage": "db",
   "db_encryption": "off",
   "data_access": {
-    "reads": ["family.members"],
+    "reads": ["family.members", "family.presence"],
     "writes": []
   },
   "permissions": {
