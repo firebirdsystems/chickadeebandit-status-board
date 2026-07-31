@@ -19,6 +19,13 @@
     "default_audience": "everyone",
     "requires_approval": false
   },
+    "member_references": {
+      "statuses": {
+        "column": "member_id",
+        "on_removed": "delete",
+        "id_column": "member_id"
+      }
+    },
   "row_policies": {
     "statuses": {
       "kind": "owner_or_visibility",
