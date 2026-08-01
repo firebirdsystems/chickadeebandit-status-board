@@ -35,6 +35,81 @@
       "write_owner_only": true
     }
   },
+  "automation_actions": {
+    "set_status": {
+      "title": "Set a member's status on the board",
+      "description": "Update someone's presence when another app's event says where they are — an approved late night, a scheduled absence.",
+      "params": {
+        "member_id": { "type": "member", "label": "Whose status", "required": true },
+        "status": {
+          "type": "text",
+          "label": "Status",
+          "required": true,
+          "options": ["home", "away", "busy", "dnd"]
+        },
+        "note": { "type": "text", "label": "Note", "default": "" },
+        "back_date": { "type": "text", "label": "Back on (yyyy-mm-dd)", "default": "" }
+      },
+      "dedupe": { "table": "statuses", "column": "source_event_id" },
+      "steps": [
+        {
+          "op": "insert",
+          "table": "statuses",
+          "values": {
+            "member_id": ":member_id",
+            "status": ":status",
+            "note": ":note",
+            "back_date": ":back_date",
+            "updated_at": "$now",
+            "source_event_id": "$event_id"
+          },
+          "on_conflict": {
+            "columns": ["member_id"],
+            "update": ["status", "note", "back_date", "updated_at", "source_event_id"]
+          }
+        }
+      ]
+    }
+  },
+  "suggested_automations": [
+    {
+      "title": "Mark someone home when they arrive at the home zone",
+      "description": "A safe-zone arrival sets that member to home, so the board reflects who is actually in rather than who last remembered to tap a button. The filter keeps it to the home zone — arriving at school is not being home.",
+      "trigger_event": "geofence.zone_entered",
+      "target_app_id": "status-board",
+      "action_id": "set_status",
+      "filter": [{ "field": "is_home", "op": "eq", "value": true }],
+      "param_map": {
+        "member_id": { "kind": "payload_field", "value": "member_id" },
+        "status": { "kind": "const", "value": "home" }
+      }
+    },
+    {
+      "title": "Mark someone away when they leave the home zone",
+      "description": "Leaving the home zone flips the board to away. Paired with the arrival rule, presence maintains itself.",
+      "trigger_event": "geofence.zone_exited",
+      "target_app_id": "status-board",
+      "action_id": "set_status",
+      "filter": [{ "field": "is_home", "op": "eq", "value": true }],
+      "param_map": {
+        "member_id": { "kind": "payload_field", "value": "member_id" },
+        "status": { "kind": "const", "value": "away" }
+      }
+    },
+    {
+      "title": "Show an approved late night on the board",
+      "description": "When a curfew exception is approved, mark that member away with the date they're due back, so the board and Today both show it without anyone updating it by hand.",
+      "trigger_event": "curfew.exception_approved",
+      "target_app_id": "status-board",
+      "action_id": "set_status",
+      "param_map": {
+        "member_id": { "kind": "payload_field", "value": "member_id" },
+        "status": { "kind": "const", "value": "away" },
+        "note": { "kind": "const", "value": "Out late (approved)" },
+        "back_date": { "kind": "payload_field", "value": "date" }
+      }
+    }
+  ],
   "nav": { "label": "Who's Home" },
   "glance": {
     "source": {
