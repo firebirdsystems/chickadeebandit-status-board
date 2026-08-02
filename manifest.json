@@ -35,6 +35,8 @@
       "write_owner_only": true
     }
   },
+  "publishes": ["status_board.status_changed"],
+  "publish_acls": {"status_board.status_changed": {"require_role": "member"}},
   "automation_actions": {
     "set_status": {
       "title": "Set a member's status on the board",

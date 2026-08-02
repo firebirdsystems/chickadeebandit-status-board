@@ -143,6 +143,25 @@ async function db(sql, params = []) {
   return json;
 }
 
+const EVENTS = window.__EVENTS_URL ?? "";
+
+// Put presence transitions on the cross-app bus. Every row this app writes is
+// visibility 'everyone' — the board is the whole point — so the member id and
+// the status carry no more than the board already shows. The note does not go
+// on the bus: it is free text people use for where they actually are.
+async function publishEvent(type, subjectId, payload = {}) {
+  if (!EVENTS) return;
+  try {
+    await fetch(EVENTS, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ type, subject_id: subjectId, payload }),
+    });
+  } catch {
+    // Best-effort: the row is already written, so a failed publish is not fatal.
+  }
+}
+
 async function loadMembers() {
   if (!CONTEXT) {
     members = [
@@ -214,6 +233,10 @@ async function saveMyStatus() {
     status, note, back_date: backDate, back_time: backTime,
     visibility: "everyone", updated_at: nowIso(),
   };
+  // Read the previous value before the optimistic update overwrites it — only a
+  // real transition goes on the bus. Re-saving "away" with a new note is not a
+  // change of state, and a rule watching this should not fire again for it.
+  const prevStatus = statusRows.find((r) => r.member_id === row.member_id)?.status ?? null;
   try {
     await db(
       `INSERT INTO app_status_board__statuses
@@ -233,6 +256,14 @@ async function saveMyStatus() {
     draft = { status, note, back_date: backDate, back_time: backTime };
     error = "";
     render();
+    if (prevStatus !== status) {
+      await publishEvent("status_board.status_changed", row.member_id, {
+        member_id: row.member_id,
+        status,
+        previous_status: prevStatus ?? "",
+        back_date: backDate,
+      });
+    }
   } catch (e) {
     error = e.message;
     render();
