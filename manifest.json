@@ -10,6 +10,9 @@
   "tags": ["family", "presence", "status", "whereabouts", "kiosk"],
   "icon": "🏠",
   "storage": "db",
+  "preload": {
+    "statuses": {"sql": "SELECT * FROM app_status_board__statuses"}
+  },
   "db_encryption": "off",
   "data_access": {
     "reads": ["family.members", "family.presence"],
