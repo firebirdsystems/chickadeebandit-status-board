@@ -102,9 +102,9 @@
 </div>
 
 <script type="module">
-import { esc } from "/hub-sdk.js";
+import { esc, hubToday} from "/hub-sdk.js";
 import {
-  STATUSES, statusLabel, statusEmoji, isOut, isoDate, formatTime,
+  STATUSES, statusLabel, statusEmoji, isOut, formatTime,
   buildBoard, boardSummary,
 } from "./logic.js";
 
@@ -184,7 +184,7 @@ async function loadMembers() {
 async function loadStatuses() {
   if (!DB) {
     statusRows = [
-      { member_id: "demo-2", member_name: "Jordan", status: "away", note: "At the office", back_date: isoDate(), back_time: "18:00", updated_at: nowIso() },
+      { member_id: "demo-2", member_name: "Jordan", status: "away", note: "At the office", back_date: hubToday(), back_time: "18:00", updated_at: nowIso() },
       { member_id: "demo-3", member_name: "Casey", status: "busy", note: "Soccer practice", back_date: "", back_time: "", updated_at: nowIso() },
     ];
     return;
@@ -322,7 +322,7 @@ function renderTile(row) {
 }
 
 function render() {
-  const board = buildBoard(members, statusRows, isoDate(), presence);
+  const board = buildBoard(members, statusRows, hubToday(), presence);
   const summary = boardSummary(board);
   const root = document.getElementById("root");
   root.className = "app";
