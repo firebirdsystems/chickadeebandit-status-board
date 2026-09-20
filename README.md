@@ -1,5 +1,7 @@
 # Who's Home (`status-board`)
 
+A [Chickadee Bandit](https://chickadeebandit.com/app-library/status-board) app.
+
 A shared household presence/status board. Each member sets whether they're
 **home · away · busy · do-not-disturb**, with an optional note and a "back by"
 time. Everyone sees the board at a glance — in the app, on the home-screen
