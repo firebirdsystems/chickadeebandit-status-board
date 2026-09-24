@@ -53,7 +53,7 @@
           "options": ["home", "away", "busy", "dnd"]
         },
         "note": { "type": "text", "label": "Note", "default": "" },
-        "back_date": { "type": "text", "label": "Back on (yyyy-mm-dd)", "default": "" }
+        "back_date": { "type": "text", "format": "date", "label": "Back on (yyyy-mm-dd)", "default": "" }
       },
       "dedupe": { "table": "statuses", "column": "source_event_id" },
       "steps": [
