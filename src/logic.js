@@ -4,10 +4,10 @@
 export const STATUSES = ["home", "away", "busy", "dnd"];
 
 const STATUS_META = {
-  home: { label: "Home", emoji: "🏠", out: false },
-  away: { label: "Away", emoji: "🚶", out: true },
-  busy: { label: "Busy", emoji: "⏳", out: true },
-  dnd:  { label: "Do not disturb", emoji: "🔕", out: true },
+  home: { label: "Home", emoji: "🏠", glyph: "house", out: false },
+  away: { label: "Away", emoji: "🚶", glyph: "door", out: true },
+  busy: { label: "Busy", emoji: "⏳", glyph: "hourglass", out: true },
+  dnd:  { label: "Do not disturb", emoji: "🔕", glyph: "bell-off", out: true },
 };
 
 /** Coerce any stored/typed value to a known status; unknown → "home". */
@@ -21,6 +21,10 @@ export function statusLabel(status) {
 
 export function statusEmoji(status) {
   return STATUS_META[normalizeStatus(status)].emoji;
+}
+
+export function statusGlyph(status) {
+  return STATUS_META[normalizeStatus(status)].glyph;
 }
 
 /** True when the status means the member is not simply home. */

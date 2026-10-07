@@ -102,9 +102,9 @@
 </div>
 
 <script type="module">
-import { esc, hubToday} from "/hub-sdk.js";
+import { esc, hubToday, glyph } from "/hub-sdk.js";
 import {
-  STATUSES, statusLabel, statusEmoji, isOut, formatTime,
+  STATUSES, statusLabel, statusGlyph, isOut, formatTime,
   buildBoard, boardSummary,
 } from "./logic.js";
 
@@ -275,7 +275,7 @@ function renderSetter() {
   const showExtra = isOut(draft.status);
   const btns = STATUSES.map((s) => `
     <button type="button" class="status-btn" data-status="${s}" aria-pressed="${draft.status === s}">
-      ${statusEmoji(s)} ${esc(statusLabel(s))}
+      ${glyph(statusGlyph(s), { accent: "currentColor" })} ${esc(statusLabel(s))}
     </button>`).join("");
   return `
     <section class="card setter">
@@ -317,7 +317,7 @@ function renderTile(row) {
         <div class="tile-name">${esc(row.name)} ${isMe ? '<span class="me-badge">you</span>' : ""}</div>
         ${sub.length ? `<div class="tile-sub">${sub.join(" · ")}</div>` : ""}
       </div>
-      <span class="pill ${row.status}">${statusEmoji(row.status)} ${esc(statusLabel(row.status))}</span>
+      <span class="pill ${row.status}">${glyph(statusGlyph(row.status), { accent: "currentColor" })} ${esc(statusLabel(row.status))}</span>
     </article>`;
 }
 
@@ -328,7 +328,7 @@ function render() {
   root.className = "app";
   root.innerHTML = `
     <div class="topbar">
-      <h1>🏠 Who's Home</h1>
+      <h1>${glyph("house")} Who's Home</h1>
       <button class="btn" style="min-height:32px;padding:5px 12px;font-size:.8rem" type="button" data-refresh>Refresh</button>
     </div>
     <div class="summary">${summary.home} home · ${summary.out} out</div>
