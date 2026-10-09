@@ -53,23 +53,90 @@ export function formatTime(hhmm) {
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
+/**
+ * True once a "back by" has passed. `today` is yyyy-mm-dd and `nowTime` HH:MM,
+ * both on the household's clock.
+ *
+ * A date with no time is due at the end of that day, so it only lapses the day
+ * after. A time with no date never lapses: "back at 07:00" typed at 20:00 means
+ * tomorrow, and nothing in the row says which — `resolveBackDate` stamps a date
+ * on new saves so only rows older than it are left in that state.
+ */
+export function isOverdue(backDate, backTime, today = isoDate(), nowTime = "") {
+  const date = String(backDate ?? "").trim();
+  if (!date) return false;
+  const dayDiff = daysBetween(today, date);
+  if (Number.isNaN(dayDiff)) return false;
+  if (dayDiff !== 0) return dayDiff < 0;
+  const time = formatTime(backTime) ? padTime(backTime) : "";
+  const now = formatTime(nowTime) ? padTime(nowTime) : "";
+  return !!time && !!now && now > time;
+}
+
+/** "9:05" → "09:05", so two HH:MM strings compare as text. */
+function padTime(hhmm) {
+  return String(hhmm).trim().padStart(5, "0");
+}
+
+/** yyyy-mm-dd `days` after `date`; "" when `date` isn't one. */
+export function addDays(date, days) {
+  const t = Date.parse(`${date}T00:00:00Z`);
+  if (Number.isNaN(t)) return "";
+  return new Date(t + days * 86_400_000).toISOString().slice(0, 10);
+}
+
+/**
+ * The date to store with a "back by". A time typed without a date gets one:
+ * today, or tomorrow when that time has already gone by. Without it the row
+ * could never lapse (see `isOverdue`) and never reach Today, whose query
+ * matches on back_date.
+ */
+export function resolveBackDate(backDate, backTime, today = isoDate(), nowTime = "") {
+  const date = String(backDate ?? "").trim();
+  if (date || !formatTime(backTime)) return date;
+  const now = formatTime(nowTime) ? padTime(nowTime) : "";
+  return now && now > padTime(backTime) ? addDays(today, 1) : today;
+}
+
+/**
+ * The date half of a "back by" as it is stored: `chosen` is the date the member
+ * picked in the setter, or "" when they picked none. A picked date is stored as
+ * it is; with none, `resolveBackDate` stamps one and `back_date_auto` says so.
+ */
+export function storedBackDate(chosen, backTime, today = isoDate(), nowTime = "") {
+  const date = String(chosen ?? "").trim();
+  if (date) return { back_date: date, back_date_auto: 0 };
+  const stamped = resolveBackDate("", backTime, today, nowTime);
+  return { back_date: stamped, back_date_auto: stamped ? 1 : 0 };
+}
+
+/** The date the member picked for a stored row — "" when the app stamped it,
+ *  so the setter never hands a guess back as the member's own choice. */
+export function chosenBackDate(row) {
+  return Number(row?.back_date_auto) === 1 ? "" : String(row?.back_date ?? "");
+}
+
 /** Human "back by" phrase from the split back_date/back_time columns, relative
- *  to `today` (yyyy-mm-dd). Returns "" when nothing useful is set. */
-export function formatBackBy(backDate, backTime, today = isoDate()) {
+ *  to `today` (yyyy-mm-dd). Returns "" when nothing useful is set. Pass
+ *  `nowTime` (HH:MM) to have a lapsed one read "was due back …" rather than
+ *  keep promising a time that has gone by. */
+export function formatBackBy(backDate, backTime, today = isoDate(), nowTime = "") {
   const date = String(backDate ?? "").trim();
   const timeText = formatTime(backTime);
   if (!date) return timeText ? `back at ${timeText}` : "";
 
   const dayDiff = daysBetween(today, date);
+  const [, mm, dd] = date.split("-");
+  const dayLabel = `${MONTHS[Number(mm) - 1] ?? "?"} ${Number(dd)}`;
+  if (isOverdue(date, backTime, today, nowTime)) {
+    if (dayDiff === 0) return `was due back ${timeText}`;
+    const day = dayDiff === -1 ? "yesterday" : dayLabel;
+    return timeText ? `was due back ${day}, ${timeText}` : `was due back ${day}`;
+  }
   let whenText;
   if (dayDiff === 0) whenText = timeText ? `back at ${timeText}` : "back later today";
   else if (dayDiff === 1) whenText = timeText ? `back tomorrow, ${timeText}` : "back tomorrow";
-  else if (dayDiff < 0) whenText = timeText ? `back at ${timeText}` : ""; // past date — treat as today-ish
-  else {
-    const [, mm, dd] = date.split("-");
-    const label = `${MONTHS[Number(mm) - 1] ?? "?"} ${Number(dd)}`;
-    whenText = timeText ? `back ${label}, ${timeText}` : `back ${label}`;
-  }
+  else whenText = timeText ? `back ${dayLabel}, ${timeText}` : `back ${dayLabel}`;
   return whenText;
 }
 
@@ -99,8 +166,11 @@ export function daysBetween(a, b) {
  *    phone disagrees, that becomes a `presenceHint` beside it, not a change.
  *  - "unknown" (phone quiet, or no crossing yet) and members missing from the
  *    board contribute nothing at all — silence must never read as "home".
+ *
+ * `nowTime` (HH:MM, household clock) lets a same-day "back by" lapse; without it
+ * only a back date on an earlier day does.
  */
-export function buildBoard(members, statusRows, today = isoDate(), presence = []) {
+export function buildBoard(members, statusRows, today = isoDate(), presence = [], nowTime = "") {
   const byMember = new Map((statusRows ?? []).map((r) => [r.member_id, r]));
   const presenceByMember = new Map(
     (Array.isArray(presence) ? presence : []).map((p) => [p?.memberId, p?.state]),
@@ -124,8 +194,14 @@ export function buildBoard(members, statusRows, today = isoDate(), presence = []
       role: m.role,
       status,
       out: isOut(status),
-      note: row?.note ?? "",
-      backBy: row ? formatBackBy(row.back_date, row.back_time, today) : "",
+      // A Home row carries no note or "back by" — older saves left them in
+      // place, and a phone-derived "away" has nothing of the member's to show.
+      note: row && isOut(selfStatus) ? row.note ?? "" : "",
+      backBy: row && isOut(selfStatus) ? formatBackBy(row.back_date, row.back_time, today, nowTime) : "",
+      /** Said they'd be back by now and hasn't changed their status since. The
+       *  status stands — being late is not being home — but the board stops
+       *  repeating the promise. */
+      overdue: !!row && isOut(selfStatus) && isOverdue(row.back_date, row.back_time, today, nowTime),
       updatedAt: row?.updated_at ?? "",
       /** Status came from the phone's geofence, not from the member. */
       fromPhone,

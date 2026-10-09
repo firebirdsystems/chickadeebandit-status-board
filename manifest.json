@@ -65,12 +65,14 @@
             "status": ":status",
             "note": ":note",
             "back_date": ":back_date",
+            "back_time": "",
+            "back_date_auto": "0",
             "updated_at": "$now",
             "source_event_id": "$event_id"
           },
           "on_conflict": {
             "columns": ["member_id"],
-            "update": ["status", "note", "back_date", "updated_at", "source_event_id"]
+            "update": ["status", "note", "back_date", "back_time", "back_date_auto", "updated_at", "source_event_id"]
           }
         }
       ]
@@ -119,7 +121,7 @@
   "glance": {
     "source": {
       "kind": "sql",
-      "query": "SELECT member_name AS title, CASE status WHEN 'away' THEN 'Away' WHEN 'busy' THEN 'Busy' WHEN 'dnd' THEN 'Do not disturb' ELSE 'Home' END AS subtitle, updated_at AS at FROM app_status_board__statuses WHERE status != 'home' ORDER BY updated_at DESC LIMIT 5"
+      "query": "SELECT CASE WHEN member_name != '' THEN member_name || ' · ' ELSE '' END || CASE status WHEN 'away' THEN 'Away' WHEN 'busy' THEN 'Busy' WHEN 'dnd' THEN 'Do not disturb' ELSE 'Home' END AS title, CASE WHEN status = 'home' THEN '' WHEN back_date = '' AND back_time = '' THEN note WHEN back_date != '' AND back_date < :today THEN CASE WHEN note != '' THEN note || ' · ' ELSE '' END || 'was due back ' || back_date ELSE CASE WHEN note != '' THEN note || ' · ' ELSE '' END || 'back ' || CASE WHEN back_date != '' AND back_date > :today THEN back_date || CASE WHEN back_time != '' THEN ' ' || back_time ELSE '' END WHEN back_time != '' THEN 'at ' || back_time ELSE 'later today' END END AS subtitle, updated_at AS at FROM app_status_board__statuses ORDER BY (status = 'home'), updated_at DESC LIMIT 5"
     },
     "display": { "template": "list", "title": "title", "subtitle": "subtitle", "when": "at" }
   },
@@ -128,7 +130,7 @@
     "label": "Who's Home",
     "source": {
       "kind": "sql",
-      "query": "SELECT member_id AS id, member_name AS title, CASE WHEN back_time = '' THEN back_date ELSE back_date || 'T' || back_time END AS when_at, CASE WHEN note != '' THEN note ELSE 'Back home' END AS subtitle, member_id AS member_id FROM app_status_board__statuses WHERE status != 'home' AND back_date = :today ORDER BY back_time LIMIT 20"
+      "query": "SELECT member_id AS id, CASE WHEN member_name != '' THEN member_name ELSE 'Away' END AS title, CASE WHEN back_time = '' THEN back_date ELSE back_date || 'T' || back_time END AS when_at, CASE WHEN note != '' THEN note ELSE 'Back home' END AS subtitle, member_id AS member_id FROM app_status_board__statuses WHERE status = 'away' AND back_date = :today ORDER BY back_time LIMIT 20"
     }
   },
   "resource_limits": {

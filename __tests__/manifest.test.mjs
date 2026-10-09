@@ -168,3 +168,42 @@ describe.skipIf(!manifest.automation_actions)("automation_actions match the migr
     }
   });
 });
+
+// ── set_status writes the whole "back by", and Today lists homecomings only ──
+//
+// A rule that sets a status (a geofence arrival, an approved late night) has
+// nothing to say about the member's old back_time. If the upsert left that
+// column alone, a date-less "back at 3:00 PM" from a hand-typed save would
+// survive a curfew write and never lapse, or ride beside the curfew's date as a
+// time nobody chose. The hub can validate a date param but not a time, so the
+// time is not a param at all: every rule clears it. The agenda shows "Back
+// home" — only `away` has a homecoming. And the glance shows a Home row with no
+// note, whatever the row holds — rows saved before Home cleared its note exist.
+
+describe("set_status, the glance and the agenda", () => {
+  const step = manifest.automation_actions.set_status.steps[0];
+  it("the upsert clears back_time with a literal, and exposes no time param", () => {
+    expect(step.values.back_time).toBe("");
+    expect(step.on_conflict.update).toContain("back_time");
+    expect(manifest.automation_actions.set_status.params.back_time).toBeUndefined();
+  });
+  it("the upsert marks its date as not stamped by the app", () => {
+    // A rule's back_date is the rule's, or empty. Left alone, a 1 from the
+    // member's last save would have the setter hide the curfew's date.
+    expect(step.values.back_date_auto).toBe("0");
+    expect(step.on_conflict.update).toContain("back_date_auto");
+  });
+  it("the glance subtitle is empty for Home rows before the note is consulted", () => {
+    expect(manifest.glance.source.query).toMatch(/CASE WHEN status = 'home' THEN '' WHEN/);
+  });
+  it("neither title leans on member_name, which set_status never writes", () => {
+    // A row first created by a rule has member_name ''. No dangling separator
+    // in the glance, no blank title on Today.
+    expect(manifest.automation_actions.set_status.steps[0].values.member_name).toBeUndefined();
+    expect(manifest.glance.source.query).toMatch(/^SELECT CASE WHEN member_name != '' THEN member_name \|\| ' · ' ELSE '' END \|\| CASE status/);
+    expect(manifest.agenda.source.query).toMatch(/CASE WHEN member_name != '' THEN member_name ELSE 'Away' END AS title/);
+  });
+  it("the Today query lists away members only", () => {
+    expect(manifest.agenda.source.query).toMatch(/WHERE status = 'away' AND back_date = :today/);
+  });
+});

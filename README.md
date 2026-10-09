@@ -42,12 +42,37 @@ derived home/away signal per member through the `family.presence` context key
 The glance and agenda SQL stay self-report-only: hub-native queries can't join
 the hub's presence table, and the merge is a board-view concern.
 
+## Lapsed "back by"
+
+A status is never changed on anyone's behalf (`write_owner_only`), so a "back
+by" that has gone past is a display matter:
+
+- the board keeps the status and says *was due back 3:00 PM* instead of
+  repeating the promise — being late is not being home;
+- the member themselves gets a **Still away?** prompt the next time they open
+  the app: *I'm home* sets Home, the other answer keeps the status and note and
+  drops the lapsed time;
+- the glance says *was due back* only once the back **date** is an earlier day.
+  Its SQL has `:today` but no time-of-day token, so a same-day time that has
+  passed still reads *back at 15:00* there.
+
+Saving a back time with no date stores one (today, or tomorrow if that time has
+already gone by), on the household's clock, and marks it `back_date_auto`. A
+stamped date is the app's guess, not the member's choice: the setter leaves the
+date field empty for it and every save stamps it again from the time. Rows saved
+before this have a time and no date; they never lapse and never reach Today
+until they are saved again.
+
 ## Hub surfaces
 
-- **glance** (home dashboard + kiosk ambient board): a list of who's currently
-  out.
-- **agenda** (Today): members with a "back by" time landing today, e.g.
-  "Casey · back at 3:00 PM".
+- **glance** (home dashboard + kiosk glance card): everyone who has set a status,
+  out-first — "Casey · Away", with the note and "back by" beneath. A Home row
+  shows no note, even one left over from an older save. Members who have
+  never set a status have no row and do not appear (the query can only read this
+  app's table).
+- **agenda** (Today): members who are *away* with a "back by" landing today,
+  e.g. "Casey · back at 3:00 PM". Busy and do-not-disturb never left, so their
+  time is not a homecoming and stays off Today.
 
 ## Develop
 

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   normalizeStatus, statusLabel, statusEmoji, isOut, formatTime,
   formatBackBy, daysBetween, buildBoard, boardSummary,
+  isOverdue, addDays, resolveBackDate, storedBackDate, chosenBackDate,
 } from "../src/logic.js";
 
 describe("status helpers", () => {
@@ -91,6 +92,13 @@ describe("buildBoard", () => {
     expect(board[1]).toMatchObject({ status: "home", out: false, note: "", backBy: "" });
   });
 
+  it("shows no note or back-by on a Home row, whatever the row holds", () => {
+    // Saves made before Home cleared its note left "at the office" behind.
+    const rows = [{ member_id: "m1", status: "home", note: "at the office", back_date: today, back_time: "15:00", updated_at: "t" }];
+    const board = buildBoard([members[0]], rows, today, [], "16:00");
+    expect(board[0]).toMatchObject({ status: "home", note: "", backBy: "", overdue: false });
+  });
+
   it("coerces unknown stored status to home", () => {
     const board = buildBoard([members[0]], [{ member_id: "m1", status: "weird" }], today);
     expect(board[0].status).toBe("home");
@@ -167,5 +175,106 @@ describe("buildBoard with hub presence", () => {
   it("counts a phone-derived away in the out total", () => {
     const board = buildBoard(members, [], today, [at("m1", "away")]);
     expect(boardSummary(board)).toEqual({ total: 2, out: 1, home: 1 });
+  });
+});
+
+describe("isOverdue", () => {
+  const today = "2026-07-17";
+  it("is false with no back date, even when a time has passed", () => {
+    expect(isOverdue("", "", today, "20:00")).toBe(false);
+    expect(isOverdue("", "07:00", today, "20:00")).toBe(false);
+  });
+  it("lapses a same-day time once the household clock passes it", () => {
+    expect(isOverdue(today, "15:00", today, "14:59")).toBe(false);
+    expect(isOverdue(today, "15:00", today, "15:00")).toBe(false);
+    expect(isOverdue(today, "15:00", today, "15:01")).toBe(true);
+    expect(isOverdue(today, "9:00", today, "10:00")).toBe(true);
+  });
+  it("holds a same-day date with no time until the day is over", () => {
+    expect(isOverdue(today, "", today, "23:59")).toBe(false);
+    expect(isOverdue("2026-07-16", "", today, "00:01")).toBe(true);
+  });
+  it("lapses an earlier day and never a later one, whatever the time", () => {
+    expect(isOverdue("2026-07-16", "23:00", today, "01:00")).toBe(true);
+    expect(isOverdue("2026-07-18", "01:00", today, "23:00")).toBe(false);
+  });
+  it("without a clock, only an earlier day lapses", () => {
+    expect(isOverdue(today, "15:00", today)).toBe(false);
+    expect(isOverdue("2026-07-16", "15:00", today)).toBe(true);
+  });
+});
+
+describe("formatBackBy once lapsed", () => {
+  const today = "2026-07-17";
+  it("says was due back instead of repeating the promise", () => {
+    expect(formatBackBy(today, "15:00", today, "16:00")).toBe("was due back 3:00 PM");
+    expect(formatBackBy("2026-07-16", "15:00", today, "09:00")).toBe("was due back yesterday, 3:00 PM");
+    expect(formatBackBy("2026-07-16", "", today, "09:00")).toBe("was due back yesterday");
+    expect(formatBackBy("2026-07-10", "", today, "09:00")).toBe("was due back Jul 10");
+  });
+  it("leaves a back-by that has not lapsed alone", () => {
+    expect(formatBackBy(today, "15:00", today, "14:00")).toBe("back at 3:00 PM");
+  });
+});
+
+describe("storedBackDate / chosenBackDate", () => {
+  const today = "2026-07-17";
+  it("stores a picked date as it is, unflagged", () => {
+    expect(storedBackDate("2026-07-20", "07:00", today, "20:00")).toEqual({ back_date: "2026-07-20", back_date_auto: 0 });
+  });
+  it("stamps and flags a date for a bare time, and neither when there is no time", () => {
+    expect(storedBackDate("", "18:00", today, "09:00")).toEqual({ back_date: today, back_date_auto: 1 });
+    expect(storedBackDate("", "07:00", today, "20:00")).toEqual({ back_date: "2026-07-18", back_date_auto: 1 });
+    expect(storedBackDate("", "", today, "20:00")).toEqual({ back_date: "", back_date_auto: 0 });
+  });
+  it("hands the setter only a date the member picked", () => {
+    expect(chosenBackDate({ back_date: "2026-07-18", back_date_auto: 1 })).toBe("");
+    expect(chosenBackDate({ back_date: "2026-07-18", back_date_auto: 0 })).toBe("2026-07-18");
+    expect(chosenBackDate({ back_date: "2026-07-18" })).toBe("2026-07-18");
+    expect(chosenBackDate(undefined)).toBe("");
+  });
+  it("a stamped tomorrow does not survive a time edit that means tonight", () => {
+    // 20:00: "07:00" is stamped tomorrow. 20:05: the time becomes 22:00.
+    const first = storedBackDate("", "07:00", today, "20:00");
+    const chosen = chosenBackDate({ ...first });
+    expect(storedBackDate(chosen, "22:00", today, "20:05")).toEqual({ back_date: today, back_date_auto: 1 });
+  });
+  it("a stamped yesterday is stamped afresh the next day", () => {
+    const chosen = chosenBackDate({ back_date: "2026-07-16", back_date_auto: 1 });
+    expect(storedBackDate(chosen, "17:00", today, "10:00")).toEqual({ back_date: today, back_date_auto: 1 });
+  });
+});
+
+describe("resolveBackDate", () => {
+  const today = "2026-07-17";
+  it("keeps a date the member chose", () => {
+    expect(resolveBackDate("2026-07-20", "07:00", today, "20:00")).toBe("2026-07-20");
+  });
+  it("stays empty when there is no time either", () => {
+    expect(resolveBackDate("", "", today, "20:00")).toBe("");
+  });
+  it("dates a bare time today, or tomorrow when it has already gone by", () => {
+    expect(resolveBackDate("", "18:00", today, "09:00")).toBe(today);
+    expect(resolveBackDate("", "07:00", today, "20:00")).toBe("2026-07-18");
+  });
+  it("addDays crosses a month end", () => {
+    expect(addDays("2026-07-31", 1)).toBe("2026-08-01");
+    expect(addDays("nope", 1)).toBe("");
+  });
+});
+
+describe("buildBoard overdue", () => {
+  const today = "2026-07-17";
+  const members = [{ id: "m1", name: "Alex", role: "adult" }];
+  const row = (over) => [{ member_id: "m1", status: "away", note: "", back_date: today, back_time: "15:00", ...over }];
+  it("flags a lapsed back-by and keeps the status the member set", () => {
+    expect(buildBoard(members, row(), today, [], "16:00")[0]).toMatchObject({
+      status: "away", out: true, overdue: true, backBy: "was due back 3:00 PM",
+    });
+  });
+  it("does not flag one still ahead, a home row, or a member with no row", () => {
+    expect(buildBoard(members, row(), today, [], "14:00")[0].overdue).toBe(false);
+    expect(buildBoard(members, row({ status: "home" }), today, [], "16:00")[0].overdue).toBe(false);
+    expect(buildBoard(members, [], today, [], "16:00")[0].overdue).toBe(false);
   });
 });

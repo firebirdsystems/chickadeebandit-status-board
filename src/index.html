@@ -71,6 +71,10 @@
     }
     .btn:hover { background: var(--accent-hover); }
     .btn:disabled { opacity: .48; cursor: default; }
+    .btn-quiet { background: transparent; color: var(--text); border-color: var(--border-mid); }
+    .btn-quiet:hover { background: var(--bg); }
+    .still-away { display: grid; gap: 10px; margin-bottom: 10px; font-size: .9rem; }
+    .still-away-btns { display: flex; gap: 8px; flex-wrap: wrap; }
     /* Board */
     .board { display: grid; gap: 10px; }
     .tile { display: flex; align-items: center; gap: 12px; }
@@ -102,10 +106,10 @@
 </div>
 
 <script type="module">
-import { esc, hubToday, glyph } from "/hub-sdk.js";
+import { esc, hubToday, hubTimeZone, glyph } from "/hub-sdk.js";
 import {
   STATUSES, statusLabel, statusGlyph, isOut, formatTime,
-  buildBoard, boardSummary,
+  buildBoard, boardSummary, formatBackBy, storedBackDate, chosenBackDate,
 } from "./logic.js";
 
 // --- Hub runtime globals (empty in demo mode) --------------------------------
@@ -123,6 +127,22 @@ let error = "";
 let draft = { status: "home", note: "", back_date: "", back_time: "" };
 
 function nowIso() { return new Date().toISOString(); }
+
+/** HH:MM right now on the household's clock — the clock `back_time` is written
+ *  in, and the one hubToday() names the day on. Device clock when the document
+ *  carries no zone, the same fallback hubToday() takes. */
+function hubClock(now = new Date()) {
+  const opts = { hour: "2-digit", minute: "2-digit", hourCycle: "h23" };
+  const tz = hubTimeZone();
+  if (tz) {
+    try {
+      return new Intl.DateTimeFormat("en-GB", { ...opts, timeZone: tz }).format(now);
+    } catch {
+      // Unusable zone — fall through to the device clock.
+    }
+  }
+  return new Intl.DateTimeFormat("en-GB", opts).format(now);
+}
 
 function avatarColor(id) {
   let h = 0;
@@ -199,7 +219,9 @@ function syncDraftFromMine() {
   draft = {
     status: mine?.status ?? "home",
     note: mine?.note ?? "",
-    back_date: mine?.back_date ?? "",
+    // Only a date the member picked. A stamped one stays out of the form and
+    // is stamped again on save (see storedBackDate).
+    back_date: chosenBackDate(mine),
     back_time: mine?.back_time ?? "",
   };
 }
@@ -216,13 +238,23 @@ async function refresh() {
   }
 }
 
+/** One save at a time. The prompt's buttons and the setter's Save all land
+ *  here; a second tap before the first upsert returns would read the same
+ *  previous status and publish the transition twice. */
+let saving = false;
+
 async function saveMyStatus() {
-  if (!currentMember) return;
-  // Home clears the "back by" fields — you're already back.
+  if (!currentMember || saving) return;
+  // Home clears the note and the "back by" fields — you're already back, and
+  // the setter hides them, so anything left over would be a stale "at the
+  // office" the glance now shows beside Home.
   const status = draft.status;
-  const note = (draft.note ?? "").trim();
-  const backDate = status === "home" ? "" : (draft.back_date ?? "").trim();
+  const note = status === "home" ? "" : (draft.note ?? "").trim();
   const backTime = status === "home" ? "" : (draft.back_time ?? "").trim();
+  // A time with no date is given one, so it can lapse and reach Today. The
+  // draft keeps only what the member picked; the stamp is flagged in the row.
+  const chosenDate = status === "home" ? "" : (draft.back_date ?? "").trim();
+  const { back_date: backDate, back_date_auto: backDateAuto } = storedBackDate(chosenDate, backTime, hubToday(), hubClock());
 
   const btn = document.getElementById("save-btn");
   if (btn) { btn.disabled = true; btn.textContent = "Saving…"; }
@@ -230,45 +262,86 @@ async function saveMyStatus() {
   const row = {
     member_id: currentMember.id,
     member_name: currentMember.name,
-    status, note, back_date: backDate, back_time: backTime,
+    status, note, back_date: backDate, back_time: backTime, back_date_auto: backDateAuto,
     visibility: "everyone", updated_at: nowIso(),
   };
   // Read the previous value before the optimistic update overwrites it — only a
   // real transition goes on the bus. Re-saving "away" with a new note is not a
   // change of state, and a rule watching this should not fire again for it.
   const prevStatus = statusRows.find((r) => r.member_id === row.member_id)?.status ?? null;
+  // Taken here, after everything above that could throw and with no await in
+  // between: every path out of the try below releases it.
+  saving = true;
   try {
     await db(
       `INSERT INTO app_status_board__statuses
-         (member_id, member_name, status, note, back_date, back_time, visibility, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, 'everyone', ?)
+         (member_id, member_name, status, note, back_date, back_time, back_date_auto, visibility, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'everyone', ?)
        ON CONFLICT(member_id) DO UPDATE SET
          member_name = excluded.member_name,
          status      = excluded.status,
          note        = excluded.note,
          back_date   = excluded.back_date,
          back_time   = excluded.back_time,
+         back_date_auto = excluded.back_date_auto,
          updated_at  = excluded.updated_at`,
-      [row.member_id, row.member_name, row.status, row.note, row.back_date, row.back_time, row.updated_at]
+      [row.member_id, row.member_name, row.status, row.note, row.back_date, row.back_time, row.back_date_auto, row.updated_at]
     );
     // Optimistic local update
     statusRows = [...statusRows.filter((r) => r.member_id !== row.member_id), row];
-    draft = { status, note, back_date: backDate, back_time: backTime };
+    draft = { status, note, back_date: chosenDate, back_time: backTime };
     error = "";
+  } catch (e) {
+    error = e.message;
+    saving = false;
     render();
-    if (prevStatus !== status) {
+    return;
+  }
+  // The row is saved and statusRows holds it, so the next save reads the right
+  // previous status. The lock ends here, before the publish: that request is
+  // best-effort, and a slow one must not hold Save or the prompt's buttons.
+  saving = false;
+  render();
+  if (prevStatus !== status) {
+    try {
       await publishEvent("status_board.status_changed", row.member_id, {
         member_id: row.member_id,
         status,
         previous_status: prevStatus ?? "",
         back_date: backDate,
       });
+    } catch (e) {
+      error = e.message;
+      render();
     }
-  } catch (e) {
-    error = e.message;
-    render();
-    if (btn) { btn.disabled = false; btn.textContent = "Save"; }
   }
+}
+
+/** Shown to the member whose own "back by" has gone past. Nobody else can
+ *  change their row, so the one person who can is asked. */
+function renderStillAway(mine) {
+  const row = statusRows.find((r) => r.member_id === mine.memberId);
+  return `
+    <section class="card still-away">
+      <div><strong>Still ${esc(statusLabel(mine.status).toLowerCase())}?</strong> You ${esc(formatBackBy(row?.back_date, row?.back_time, hubToday(), hubClock()).replace(/^was /, "were "))}.</div>
+      <div class="still-away-btns">
+        <button class="btn" type="button" data-still-away="home">I'm home</button>
+        <button class="btn btn-quiet" type="button" data-still-away="out">Still ${esc(statusLabel(mine.status).toLowerCase())}</button>
+      </div>
+    </section>`;
+}
+
+/** Answers the prompt above, from the saved row alone: "home" sets Home; "out"
+ *  keeps the saved status and note and drops the lapsed "back by". Anything
+ *  half-typed in the setter below is discarded — the prompt asks about the
+ *  status on the board, and answering it saves exactly what its button says. */
+function answerStillAway(answer) {
+  if (saving) return;
+  syncDraftFromMine();
+  if (answer === "home") draft.status = "home";
+  draft.back_date = "";
+  draft.back_time = "";
+  saveMyStatus();
 }
 
 function renderSetter() {
@@ -298,7 +371,7 @@ function renderSetter() {
             </div>
           </div>
         </div>` : ""}
-      <div style="margin-top:12px"><button class="btn" id="save-btn" type="button">Save</button></div>
+      <div style="margin-top:12px"><button class="btn" id="save-btn" type="button"${saving ? " disabled" : ""}>${saving ? "Saving…" : "Save"}</button></div>
     </section>`;
 }
 
@@ -322,8 +395,9 @@ function renderTile(row) {
 }
 
 function render() {
-  const board = buildBoard(members, statusRows, hubToday(), presence);
+  const board = buildBoard(members, statusRows, hubToday(), presence, hubClock());
   const summary = boardSummary(board);
+  const mine = board.find((b) => b.memberId === currentMember?.id);
   const root = document.getElementById("root");
   root.className = "app";
   root.innerHTML = `
@@ -333,6 +407,7 @@ function render() {
     </div>
     <div class="summary">${summary.home} home · ${summary.out} out</div>
     ${error ? `<div class="error">${esc(error)}</div>` : ""}
+    ${mine?.overdue ? renderStillAway(mine) : ""}
     ${currentMember ? renderSetter() : ""}
     <section class="board">
       ${board.length ? board.map(renderTile).join("") : `<div class="card empty">No members yet.</div>`}
@@ -344,6 +419,8 @@ document.addEventListener("click", (event) => {
   const statusBtn = event.target.closest("[data-status]");
   if (statusBtn) { draft.status = statusBtn.getAttribute("data-status"); render(); return; }
   if (event.target.closest("[data-refresh]")) { refresh(); return; }
+  const stillAway = event.target.closest("[data-still-away]");
+  if (stillAway) { answerStillAway(stillAway.getAttribute("data-still-away")); return; }
   if (event.target.closest("#save-btn")) { saveMyStatus(); return; }
 });
 

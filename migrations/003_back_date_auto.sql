@@ -1,0 +1,13 @@
+-- Whether back_date was chosen by the member (0) or stamped by the app (1).
+--
+-- A "back by" typed as a time alone is given a date on save — today, or
+-- tomorrow when that time has already gone by — so it can lapse and reach
+-- Today, whose query matches on back_date. That date is a guess. Without this
+-- flag the setter could not tell it from one the member picked, and would hand
+-- it back as theirs: change "07:00" to "22:00" five minutes later and the row
+-- kept tomorrow's date.
+--
+-- With it, a stamped date is never shown in the setter and is stamped afresh on
+-- every save. Rows written by set_status (manifest.json) carry the rule's own
+-- date, or none, and write 0.
+ALTER TABLE app_status_board__statuses ADD COLUMN back_date_auto INTEGER NOT NULL DEFAULT 0;
