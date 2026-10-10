@@ -1,0 +1,15 @@
+{
+ "seed": [
+  {
+   "sql": "INSERT INTO app_status_board__statuses (member_id, member_name, status, note, back_date, back_time, back_date_auto, visibility, updated_at) VALUES (?, ?, ?, ?, date('now','+1 day'), ?, 0, ?, strftime('%Y-%m-%dT%H:%M:%fZ','now','-35 minutes'))",
+   "params": [
+    "{{me}}",
+    "Adam",
+    "away",
+    "At the office — back for dinner",
+    "18:30",
+    "everyone"
+   ]
+  }
+ ]
+}
