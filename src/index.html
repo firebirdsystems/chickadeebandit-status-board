@@ -97,6 +97,8 @@
     .me-badge { font-size: .68rem; color: var(--muted); font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
     .empty, .loading { color: var(--muted); text-align: center; padding: 28px 16px; }
     .error { background: var(--red-soft); color: var(--red); padding: 9px 12px; border-radius: 8px; margin-bottom: 10px; font-size: .86rem; }
+    .load-error { margin: 0 0 12px; padding: 10px 14px; border-radius: 10px; background: var(--hub-tint-danger, #fee2e2); color: var(--hub-tint-danger-fg, #b91c1c); font-size: 0.9rem; display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+    .load-error-retry { background: none; border: 1px solid currentColor; border-radius: 8px; padding: 5px 10px; font: inherit; font-weight: 600; color: inherit; cursor: pointer; flex-shrink: 0; }
   </style>
   <base href="/run/status-board/">
 </head>
@@ -123,6 +125,8 @@ let currentMember = null;
 let statusRows = [];
 let presence = [];   // hub-derived home/away (family.presence); a hint, never a write
 let error = "";
+let loaded = false;      // a load has succeeded at least once
+let loadFailed = false;  // the FIRST load failed: nothing is known about the board
 // Draft of the setter panel (before Save)
 let draft = { status: "home", note: "", back_date: "", back_time: "" };
 
@@ -158,8 +162,8 @@ async function db(sql, params = []) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ sql, params }),
   });
-  const json = await res.json();
-  if (json.error) throw new Error(json.error);
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json || typeof json !== "object" || json.error) throw new Error(json?.error || "Couldn’t reach the hub. Try again.");
   return json;
 }
 
@@ -192,7 +196,10 @@ async function loadMembers() {
     presence = [];
   } else {
     const res = await fetch(`${CONTEXT}?keys=family.members,family.presence`);
-    const ctx = await res.json();
+    const ctx = await res.json().catch(() => null);
+    if (!res.ok || ctx === null || typeof ctx !== "object" || Array.isArray(ctx)) throw new Error("Couldn’t reach the hub. Try again.");
+    // A 200 that names the key in `$errors` is the hub saying it could not read it.
+    if (Array.isArray(ctx.$errors) && ctx.$errors.includes("family.members")) throw new Error("Couldn’t reach the hub. Try again.");
     members = ctx["family.members"] ?? [];
     // Empty unless Safe Zones has a home zone and location collection is on —
     // the hub decides, and an empty board simply leaves self-reports alone.
@@ -230,10 +237,14 @@ async function refresh() {
   error = "";
   try {
     await Promise.all([loadMembers(), loadStatuses()]);
+    loaded = true;
+    loadFailed = false;
     syncDraftFromMine();
     render();
   } catch (e) {
-    error = e.message;
+    // Only a failed first load raises the banner; a failed manual refresh
+    // keeps the board already on screen and says so inline.
+    if (loaded) error = e.message; else loadFailed = true;
     render();
   }
 }
@@ -400,6 +411,14 @@ function render() {
   const mine = board.find((b) => b.memberId === currentMember?.id);
   const root = document.getElementById("root");
   root.className = "app";
+  // Unread statuses would draw everyone as Home, and the setter would save
+  // over a status it never saw — so a failed first load shows the banner alone.
+  if (loadFailed) {
+    root.innerHTML = `
+      <div class="topbar"><h1>${glyph("house")} Who's Home</h1></div>
+      <div class="load-error" data-testid="load-error" role="alert"><span>Couldn’t load the status board.</span> <button type="button" class="load-error-retry" data-testid="load-retry">Try again</button></div>`;
+    return;
+  }
   root.innerHTML = `
     <div class="topbar">
       <h1>${glyph("house")} Who's Home</h1>
@@ -418,7 +437,7 @@ function render() {
 document.addEventListener("click", (event) => {
   const statusBtn = event.target.closest("[data-status]");
   if (statusBtn) { draft.status = statusBtn.getAttribute("data-status"); render(); return; }
-  if (event.target.closest("[data-refresh]")) { refresh(); return; }
+  if (event.target.closest('[data-refresh], [data-testid="load-retry"]')) { refresh(); return; }
   const stillAway = event.target.closest("[data-still-away]");
   if (stillAway) { answerStillAway(stillAway.getAttribute("data-still-away")); return; }
   if (event.target.closest("#save-btn")) { saveMyStatus(); return; }
