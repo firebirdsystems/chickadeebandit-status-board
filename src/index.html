@@ -244,7 +244,9 @@ async function refresh() {
   } catch (e) {
     // Only a failed first load raises the banner; a failed manual refresh
     // keeps the board already on screen and says so inline.
-    if (loaded) error = e.message; else loadFailed = true;
+    // The hub's error text stays in the console.
+    console.error("[status-board] refresh failed:", e);
+    if (loaded) error = "Couldn’t load the board."; else loadFailed = true;
     render();
   }
 }
@@ -303,7 +305,8 @@ async function saveMyStatus() {
     draft = { status, note, back_date: chosenDate, back_time: backTime };
     error = "";
   } catch (e) {
-    error = e.message;
+    console.error("[status-board] save failed:", e);
+    error = "Couldn’t save your status — try again.";
     saving = false;
     render();
     return;
@@ -322,7 +325,8 @@ async function saveMyStatus() {
         back_date: backDate,
       });
     } catch (e) {
-      error = e.message;
+      console.error("[status-board] publish failed:", e);
+      error = "Your status is saved, but the change couldn’t be announced.";
       render();
     }
   }
