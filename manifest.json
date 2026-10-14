@@ -133,9 +133,6 @@
       "query": "SELECT member_id AS id, CASE WHEN member_name != '' THEN member_name ELSE 'Away' END AS title, CASE WHEN back_time = '' THEN back_date ELSE back_date || 'T' || back_time END AS when_at, CASE WHEN note != '' THEN note ELSE 'Back home' END AS subtitle, member_id AS member_id FROM app_status_board__statuses WHERE status = 'away' AND back_date = :today ORDER BY back_time LIMIT 20"
     }
   },
-  "resource_limits": {
-    "max_db_bytes": 52428800
-  },
   "ai_access": {
     "allowed": true,
     "mode": "read",
